@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Aug  3 11:05:06 2022
+
+@author: MP Boneschansker
+
+random forest script for ripps, taken from 
+https://github.com/Pitsillides91/Python-Tutorials/
+
+"""
+# %%
+
+
+### Graphical Decision Trees
+from IPython.display import Image
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import colors
+from matplotlib.ticker import PercentFormatter
+from sklearn.metrics import RocCurveDisplay
+
+
+np.random.seed(2022)
+
+# %%
+
+# Packages / libraries
+import os #provides functions for interacting with the operating system
+import numpy as np 
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sns
+
+%matplotlib inline
+
+# To install sklearn type "pip install numpy scipy scikit-learn" to the anaconda terminal
+
+# To change scientific numbers to float
+np.set_printoptions(formatter={'float_kind':'{:f}'.format})
+
+# Increases the size of sns plots
+sns.set(rc={'figure.figsize':(8,6)})
+
+# Datetime lib
+from pandas import to_datetime
+import itertools
+import warnings
+import datetime
+warnings.filterwarnings('ignore')
+
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn import tree
+from sklearn.tree import DecisionTreeClassifier, export_graphviz
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, r2_score
+
+# pip install graphviz
+# conda install python-graphviz
+
+
+# %%
+
+#################################################################################################################
+################################ Getting the file from local CSV      ###########################################
+#################################################################################################################
+
+
+# Loading the data
+file = '/home/work/Desktop/WUR/master_local/csvs/all_csvs/armon.csv'
+
+raw_data = pd.read_csv(file)
+
+# print the shape
+print(raw_data.shape)
+
+#runs the first 5 rows
+raw_data.head()
+
+
+# Investigate all the elements whithin each Feature 
+
+for column in raw_data:
+    unique_vals = np.unique(raw_data[column])
+    nr_values = len(unique_vals)
+    if nr_values < 12:
+        print('The number of values for feature {} :{} -- {}'.format(column, nr_values,unique_vals))
+    else:
+        print('The number of values for feature {} :{}'.format(column, nr_values))
+
+
+# Checking for null values
+raw_data.isnull().sum()
+raw_data.columns
+
+# replace RIPP with a subset, like 'lanthipeptide' or 'cyanobactin'
+# subset = 'lant'
+# raw_data['RIPP'] = raw_data['PRECURSOR'].str.contains(subset).astype(int)
+
+# Limiting the data
+raw_data2 = raw_data[['0', '1','2', '3', '4', '5','6', '7',
+       '8', '9','RIPP']]
+
+#Visualize the data using seaborn Pairplots
+# g = sns.pairplot(raw_data2, hue = 'RIPP')
+#g.savefig(file[:-4]+'_pairplot.png')
+
+
+# %%
+
+# Scaling our columns
+new_raw_data = raw_data2
+
+scale_vars = ['0', '1','2', '3', '4', '5','6', '7', '8','9']
+scaler = MinMaxScaler()
+new_raw_data[scale_vars] = scaler.fit_transform(new_raw_data[scale_vars])
+new_raw_data.head()
+
+
+# %%
+
+# Your code goes here
+X = new_raw_data.drop('RIPP', axis=1).values # Input features (attributes)
+
+
+y = new_raw_data['RIPP'].values # Target vector
+print('X shape: {}'.format(np.shape(X)))
+print('y shape: {}'.format(np.shape(y)))
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, train_size = 0.8, test_size=0.2, random_state=0)
+
+
+# %%
+
+dt = DecisionTreeClassifier(criterion='entropy', max_depth=6, random_state=1)
+dt.fit(X_train, y_train)
+
+# %%
+import graphviz 
+
+dot_data = tree.export_graphviz(dt, out_file=None, 
+    feature_names=new_raw_data.drop('RIPP', axis=1).columns,    
+    class_names=new_raw_data['RIPP'].unique().astype(str),  
+    filled=True, rounded=True,  
+    special_characters=True)
+graph = graphviz.Source(dot_data)
+graph
+
+
+# %%
+
+#del final_fi
+
+# Calculating FI
+for i, column in enumerate(new_raw_data.drop('RIPP', axis=1)):
+    print('Importance of feature {}:, {:.3f}'.format(column, dt.feature_importances_[i]))
+    
+    fi = pd.DataFrame({'Variable': [column], 'Feature Importance Score': [dt.feature_importances_[i]]})
+    
+    try:
+        final_fi = pd.concat([final_fi,fi], ignore_index = True)
+    except:
+        final_fi = fi
+        
+        
+# Ordering the data
+final_fi = final_fi.sort_values('Feature Importance Score', ascending = False).reset_index()            
+final_fi
+
+
+# %%
+# Accuracy on Train
+print("Training Accuracy is: ", dt.score(X_train, y_train))
+
+# Accuracy on Train
+print("Testing Accuracy is: ", dt.score(X_test, y_test))
+
+# %%
+# Confusion Matrix function
+
+def plot_confusion_matrix(cm, classes=None, title='Confusion matrix'):
+    """Plots a confusion matrix."""
+    if classes is not None:
+        sns.heatmap(cm, xticklabels=classes, yticklabels=classes, vmin=0., vmax=1., annot=True, annot_kws={'size':50})
+    else:
+        sns.heatmap(cm, vmin=0., vmax=1.)
+    plt.title(title)
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    
+
+y_pred = dt.predict(X_train)
+
+# Plotting Confusion Matrix
+cm = confusion_matrix(y_train, y_pred)
+cm_norm = cm/cm.sum(axis=1)[:, np.newaxis]
+plt.figure()
+plot_confusion_matrix(cm_norm, classes=dt.classes_, title='Training confusion')
+
+
+# %%
+# Calculating False Positives (FP), False Negatives (FN), True Positives (TP) & True Negatives (TN)
+FP = cm.sum(axis=0) - np.diag(cm)  
+FN = cm.sum(axis=1) - np.diag(cm)
+TP = np.diag(cm)
+TN = cm.sum() - (FP + FN + TP)
+
+
+# Sensitivity, hit rate, recall, or true positive rate
+TPR = TP/(TP+FN)
+print ("The True Positive rate / Recall per class is: ",TPR)
+
+# Precision or positive predictive value
+PPV = TP/(TP+FP)
+print ("The Precision per class is: ",PPV)
+
+# False positive rate or False alarm rate
+FPR = FP/(FP+TN)
+print ("The False Alarm rate per class is: ",FPR)
+
+# False negative rate or Miss Rate
+FNR = FN/(TP+FN)
+print ("The Miss Rate rate per class is: ",FNR)
+
+# Classification error
+CER = (FP+FN)/(TP+FP+FN+TN)
+print ("The Classification error of each class is", CER)
+
+# Overall accuracy
+ACC = (TP+TN)/(TP+FP+FN+TN)
+print ("The Accuracy of each class is", ACC)
+print("")
+
+##Total averages :
+print ("The average Recall is: ",TPR.sum()/2)
+print ("The average Precision is: ",PPV.sum()/2)
+print ("The average False Alarm is: ",FPR.sum()/2)
+print ("The average Miss Rate rate is: ",FNR.sum()/2)
+print ("The average Classification error is", CER.sum()/2)
+print ("The average Accuracy is", ACC.sum()/2)
+
+# Explenations:https://youtu.be/0HDy6n3UD5M
+
+# %% single RF
+
+rf = RandomForestClassifier(n_estimators=100, criterion='entropy',
+                            max_features=None,
+                            max_depth=None)
+rf.fit(X_train, y_train)
+prediction_test = rf.predict(X=X_test)
+
+# hier vul je wss dan ipv X_test je nieuwe dataset in. Easy enough.
+
+# source: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
+
+# Accuracy on Test
+print("Training Accuracy is: ", rf.score(X_train, y_train))
+# Accuracy on Train
+print("Testing Accuracy is: ", rf.score(X_test, y_test))
+
+# Confusion Matrix
+cm = confusion_matrix(y_test, prediction_test)
+cm_norm = cm/cm.sum(axis=1)[:, np.newaxis]
+plt.figure()
+plot_confusion_matrix(cm_norm, classes=rf.classes_)
+
+# %%
+
+# Tuning Random Forest
+
+from itertools import product
+n_estimators = 100
+max_features = [1, 'sqrt', 'log2']
+max_depths = [None, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 , 13, 15]
+for f, d in product(max_features, max_depths): # with product we can iterate through all possible combinations
+    rf = RandomForestClassifier(n_estimators=n_estimators, 
+                                criterion='entropy', 
+                                max_features=f, 
+                                max_depth=d, 
+                                n_jobs=2,
+                                random_state=2022)
+    rf.fit(X_train, y_train)
+    prediction_test = rf.predict(X=X_test)
+    print('Classification accuracy on test set with max features = {} and max_depth = {}: {:.3f}'.format(f, d, accuracy_score(y_test,prediction_test)))
+    cm = confusion_matrix(y_test, prediction_test)
+    cm_norm = cm/cm.sum(axis=1)[:, np.newaxis]
+    plt.figure()
+    plot_confusion_matrix(cm_norm, classes=rf.classes_,
+    title='max features = {} and max_depth = {}: {:.3f}'.format(f, d, accuracy_score(y_test,prediction_test)))
+
+
+# best results on training session
+# Classification accuracy on test set with max features = log2 and max_depth = 9: 0.860
+
+
+# %% 
+
+# final model RF based on itertools
+
+
+rf = RandomForestClassifier(n_estimators=100, criterion='entropy',
+                            max_features='log2',
+                            max_depth=10)
+
+
+# %%
+
+#################################################################################################################
+################################ Getting the file from local CSV      ###########################################
+#################################################################################################################
+# same process as above but this time with the decrippter csv
+
+# Loading the data
+file = '/home/work/Desktop/WUR/master_local/csvs/armon_decrippter_2.csv'
+
+
+# dropna is crucial here as some data in raw file is NaN. Def beh. is drop rows
+unseen_raw_data = pd.read_csv(file).dropna()
+
+# print the shape
+print(unseen_raw_data.shape)
+
+#runs the first 5 rows
+unseen_raw_data.head()
+
+
+# Investigate all the elements whithin each Feature 
+
+for column in unseen_raw_data:
+    unique_vals = np.unique(unseen_raw_data[column])
+    nr_values = len(unique_vals)
+    if nr_values < 12:
+        print('The number of values for feature {} :{} -- {}'.format(column, nr_values,unique_vals))
+    else:
+        print('The number of values for feature {} :{}'.format(column, nr_values))
+
+
+# Checking for null values
+unseen_raw_data.isnull().sum()
+unseen_raw_data.columns
+
+# Limiting the data
+#unseen_raw_data = unseen_raw_data[unseen_raw_data['RIPP']==0]
+
+unseen_raw_data2 = unseen_raw_data[['0', '1','2', '3', '4', '5', '6', '7',
+       '8', '9', 'RIPP']]
+
+
+
+#Visualize the data using seaborn Pairplots
+# g = sns.pairplot(unseen_raw_data2, hue = 'RIPP', diag_kws={'bw': 0.2})
+# g.savefig(file[:-4]+'_pairplot.png')
+
+
+# %%
+
+# Scaling our columns
+unseen_new_raw_data = unseen_raw_data2
+
+scale_vars = ['0', '1','2', '3', '4', '5', '6', '7', '8', '9']
+scaler = MinMaxScaler()
+unseen_new_raw_data[scale_vars] = scaler.fit_transform(unseen_new_raw_data[scale_vars])
+unseen_new_raw_data.head()
+
+
+# %%
+
+# Your code goes here
+# X here is decrippter data
+X = unseen_new_raw_data.drop('RIPP', axis=1).values # Input features (attributes)
+
+# Z here is training data
+Z = new_raw_data
+
+y = unseen_new_raw_data['RIPP'].values # Target vector
+print('X shape: {}'.format(np.shape(X)))
+print('y shape: {}'.format(np.shape(y)))
+
+# %% predict unseen data
+
+
+rf.fit(X_train, y_train)
+
+prediction_prob = rf.predict_proba(X)
+
+try:
+    Z.drop('predictions', axis=1)
+except:
+    None    
+    
+prediction_prob_training = rf.predict_proba(Z.drop(['RIPP'], axis=1))
+Z['prediction'] = prediction_prob_training[:,1]
+
+threshold = 0.5
+prediction = (prediction_prob[:,1] > threshold).astype(int)
+
+prediction_df = pd.DataFrame({'positive': pd.Series(Z[Z['RIPP']==1]['prediction']), 
+            'decrippter': pd.Series(prediction_prob[:,1]),
+            'negative': pd.Series(Z[Z['RIPP']==0]['prediction'])})
+              
+g = sns.kdeplot(data=prediction_df, common_norm=False)
+plt.xlabel('Probability', fontsize=11)              
+# %%
+
+'''
+g = sns.displot(prediction_prob[:,1], kind='kde')
+g.set_axis_labels('Probability', 'Density')
+g.fig.suptitle('Prediction Probabilities', fontsize =20)
+'''
+
+# totaldf = pd.DataFrame({'positive': pd.Series(pos_predictions[:,1]), 'negative': pd.Series(neg_predictions[:,1]), pd.Series(decrippter_prediction[:,1]}))
+
+# %% something ROC curve for current rf model
+ax = plt.gca()
+ax.plot(0.027, 0.56, "or", markersize=10)
+rfc_disp = RocCurveDisplay.from_estimator(rf, X_test, y_test, ax=ax, alpha=0.8)
+
+
+# %% generate heatmap on raw data, doesnt belong in RF i Know, but for the sake of it
+'''
+sns.clustermap(data=raw_data2, cmap='crest', col_cluster=False, row_colors=row_colors)
+
+iris = sns.load_dataset("iris")
+species = iris.pop("species")
+sns.clustermap(iris)
+
+lut = dict(zip(species.unique(), "rbg"))
+row_colors = species.map(lut)
+sns.clustermap(iris, row_colors=row_colors)
+
+'''
+
+#sns.kdeplot(data=total_df, x='values', hue='dataset', legend=True, 
+ #         common_norm = False, log_scale=(False,False), linewidth=2)
+
+'''
+plot = sns.kdeplot(data=unseen_raw_data, x='prediction', hue='GENUS', 
+                     common_norm=False, linewidth=0.2, palette='husl')
+
+sns.set(rc={'figure.figsize':(15,11)})
+
+
+plt.savefig('/home/work/Desktop/WUR/master_local/images/predictions_on_genus.eps', 
+            format='eps', dpi=1200)
+
+
+
+'''
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
